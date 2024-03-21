@@ -11,6 +11,7 @@ endif
 
 export ARM_EXEC
 
+#   $\不添加空格的拆分，见官方文档https://www.gnu.org/software/make/manual/make.html
 arm-specific-defs = \
     $(Q)$(PRINTF) \
         "/* target: ARM */\n$\

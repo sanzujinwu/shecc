@@ -8,6 +8,7 @@ endif
 HOST_ARCH = $(shell arch 2>/dev/null)
 
 # Control the build verbosity
+# 命令前加@表示关闭回显
 ifeq ("$(VERBOSE)","1")
     Q :=
     VECHO = @true
