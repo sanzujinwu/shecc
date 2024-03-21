@@ -76,7 +76,6 @@ export TARGET_EXEC
 #	调用函数在mk文件中定义，再将返回内容重定义到新创建的config文件
 #	打印，打印函数在common.mk中定义
 config:
-	@echo "1" $@
 	$(Q)ln -s $(PWD)/$(SRCDIR)/$(ARCH)-codegen.c $(SRCDIR)/codegen.c
 	$(call $(ARCH)-specific-defs) > $@
 	$(VECHO) "Target machine code switch to %s\n" $(ARCH)
@@ -84,7 +83,6 @@ config:
 #2
 #
 $(OUT)/tests/%.elf: tests/%.c $(OUT)/$(STAGE0)
-	@echo "2" $@
 	$(VECHO) "  SHECC\t$@\n"
 	$(Q)$(OUT)/$(STAGE0) --dump-ir -o $@ $< > $(basename $@).log ; \
 	chmod +x $@ ; $(PRINTF) "Running $@ ...\n"
@@ -92,12 +90,10 @@ $(OUT)/tests/%.elf: tests/%.c $(OUT)/$(STAGE0)
 
 #3
 check: $(TESTBINS) tests/driver.sh
-	@echo "3" $@
 	tests/driver.sh
 
 #4
 check-snapshots: $(OUT)/$(STAGE0) $(SNAPSHOTS) tests/check-snapshots.sh
-	@echo "4" $@
 	tests/check-snapshots.sh
 
 #5
@@ -107,8 +103,6 @@ check-snapshots: $(OUT)/$(STAGE0) $(SNAPSHOTS) tests/check-snapshots.sh
 #	-MMD -MF out/src/main.o.d out/src/main.c
 #	表示生成main.c的依赖关系文件main.o.d，$<指当前规则的第一个先决条件
 $(OUT)/%.o: %.c
-
-	@echo "5" $@
 	$(VECHO) "  CC\t$@\n"
 	$(Q)$(CC) -o $@ $(CFLAGS) -c -MMD -MF $@.d $<
 
@@ -118,7 +112,6 @@ SHELL_HACK := $(shell mkdir -p $(OUT) $(OUT)/$(SRCDIR) $(OUT)/tests)
 #	先决条件：7 ./lib/c.c
 #	用内联器生成out/libc.inc
 $(OUT)/libc.inc: $(OUT)/inliner $(LIBDIR)/c.c
-	@echo "6" $@
 	$(VECHO) "  GEN\t$@\n"
 	$(Q)$(OUT)/inliner $(LIBDIR)/c.c $@
 
@@ -129,7 +122,6 @@ $(OUT)/libc.inc: $(OUT)/inliner $(LIBDIR)/c.c
 #	这样做的好处是，可以减少函数调用的开销，因为不需要进行库的链接。
 #	Inliner一般工作在IR层面，而不是像宏那样，在源码层面做替换
 $(OUT)/inliner: tools/inliner.c
-	@echo "7" $@
 	$(VECHO) "  CC+LD\t$@\n"
 	$(Q)$(CC) $(CFLAGS) -o $@ $^
 
@@ -138,7 +130,6 @@ $(OUT)/inliner: tools/inliner.c
 #	用gcc把out/src/main.o链接成out/shecc
 #	out/libc.inc在./src/main.c中include
 $(OUT)/$(STAGE0): $(OUT)/libc.inc $(OBJS)
-	@echo "8" $@
 	$(VECHO) "  LD\t$@\n"
 	$(Q)$(CC) $(OBJS) -o $@
 
@@ -146,7 +137,6 @@ $(OUT)/$(STAGE0): $(OUT)/libc.inc $(OBJS)
 #	先决条件：8
 #	用shecc把./src/main.c编译成out/shecc-stage1.elf，并生成IR
 $(OUT)/$(STAGE1): $(OUT)/$(STAGE0)
-	@echo "9" $@
 	$(VECHO) "  SHECC\t$@\n"
 	$(Q)$(OUT)/$(STAGE0) --dump-ir -o $@ $(SRCDIR)/main.c > $(OUT)/shecc-stage1.log
 	$(Q)chmod a+x $@
@@ -156,7 +146,6 @@ $(OUT)/$(STAGE1): $(OUT)/$(STAGE0)
 #	/usr/bin/qemu-arm、out/shecc-stage1.elf
 #	把./src/main.c编译成out/shecc-stage2.elf
 $(OUT)/$(STAGE2): $(OUT)/$(STAGE1)
-	@echo "10" $@
 	$(VECHO) "  SHECC\t$@\n"
 	$(Q)$(TARGET_EXEC) $(OUT)/$(STAGE1) -o $@ $(SRCDIR)/main.c
 
@@ -167,7 +156,6 @@ $(OUT)/$(STAGE2): $(OUT)/$(STAGE1)
 #	比较./out/shecc-stage1.elf ./out/shecc-stage2.elf
 #	false为shell命令的，设置退出码，当文件比对不相同时，Makefile退出
 bootstrap: $(OUT)/$(STAGE2)
-	@echo "11" $@
 	$(Q)chmod 775 $(OUT)/$(STAGE2)
 	$(Q)if ! diff -q $(OUT)/$(STAGE1) $(OUT)/$(STAGE2); then \
 	echo "Unable to bootstrap. Aborting"; false; \
@@ -180,7 +168,6 @@ bootstrap: $(OUT)/$(STAGE2)
 
 #12
 clean:
-	@echo "12" $@
 	-$(RM) $(OUT)/$(STAGE0) $(OUT)/$(STAGE1) $(OUT)/$(STAGE2)
 	-$(RM) $(OBJS) $(deps)
 	-$(RM) $(TESTBINS) $(OUT)/tests/*.log $(OUT)/tests/*.lst
@@ -189,7 +176,6 @@ clean:
 
 #13
 distclean: clean
-	@echo "13" $@
 	-$(RM) $(OUT)/inliner $(OUT)/target $(SRCDIR)/codegen.c config
 
 #“-”的意思是告诉make，忽略此操作的错误。make继续执行
