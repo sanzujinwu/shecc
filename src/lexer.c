@@ -100,6 +100,7 @@ int is_whitespace(char c)
 char peek_char(int offset);
 
 /* is it backslash-newline? */
+/* 反斜杠换行，续行符 */
 int is_linebreak(char c)
 {
     return c == '\\' && peek_char(1) == '\n';
@@ -169,6 +170,7 @@ char read_char(int is_skip_space)
     return next_char;
 }
 
+/* 向前看offset个字符，不是正式读取，因为source_idx没有增加 */
 char peek_char(int offset)
 {
     return SOURCE[source_idx + offset];
@@ -176,6 +178,13 @@ char peek_char(int offset)
 
 /* Lex next token and returns its token type. Parameter `aliasing` is used for
  * disable preprocessor aliasing on identifier tokens.
+ */
+/* 词法分析主体函数，这是一个手工编码的词法分析器，没有使用NFA、DFA、自动生成技术
+ * 进行词法分析并返回下一个标记的类型。参数aliasing为真时，把别名替换为实际标记值，避免被视为另一个标识符
+ * 需要跟踪的全局变量：
+ * token_str[]  标记字符串
+ * next_token   下一个标记的类型
+ * next_char    下一个字符
  */
 token_t lex_token_internal(int aliasing)
 {
@@ -229,11 +238,13 @@ token_t lex_token_internal(int aliasing)
             } while (next_char);
         } else {
             /* single '/', predict divide */
+            /* 这里只匹配空格，没有'\t'吗？ */
             if (next_char == ' ')
                 read_char(1);
             return T_divide;
         }
         /* TODO: check invalid cases */
+        /* 不会走到这里 */
         error("Unexpected '/'");
     }
 
@@ -515,6 +526,7 @@ token_t lex_token_internal(int aliasing)
         if (!strcmp(token_str, "continue"))
             return T_continue;
 
+        /* 处理别名，替换为原值 */
         if (aliasing) {
             alias = find_alias(token_str);
             if (alias) {
@@ -579,6 +591,7 @@ int lex_accept_internal(token_t token, int aliasing)
 /* Accepts next token if token types are matched. To disable aliasing
  * on next token, use `lex_accept_internal`.
  */
+/* 匹配标记类型    读取下一个标记    匹配成功返回1，否则为0*/
 int lex_accept(token_t token)
 {
     return lex_accept_internal(token, 1);
@@ -587,6 +600,7 @@ int lex_accept(token_t token)
 /* Peeks next token and copy token's literal to value if token types
  * are matched.
  */
+/* 匹配标记类型    不读下一个标记    匹配成功返回1，否则为0。 */
 int lex_peek(token_t token, char *value)
 {
     if (next_token == token) {
@@ -613,6 +627,7 @@ void lex_ident_internal(token_t token, char *value, int aliasing)
  * literal to value. To disable aliasing on next token, use
  * `lex_ident_internal`.
  */
+/* 匹配标记类型    不读下一个标记    匹配失败退出，无返回值 */
 void lex_ident(token_t token, char *value)
 {
     lex_ident_internal(token, value, 1);
@@ -623,13 +638,16 @@ void lex_expect_internal(token_t token, int aliasing)
 {
     if (next_token != token)
         error("Unexpected token");
+    /* 读取下一个标记并返回类型 */
     next_token = lex_token_internal(aliasing);
 }
 
 /* Strictly match next token with given token type. To disable aliasing
  * on next token, use `lex_expect_internal`.
  */
+/* 匹配标记类型    读取下一个标记    匹配失败退出，无返回值 */
 void lex_expect(token_t token)
 {
+    /* 匹配给定的标记类型，并替换别名为值 */
     lex_expect_internal(token, 1);
 }

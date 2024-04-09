@@ -233,11 +233,23 @@ void elf_align()
 
 void elf_add_symbol(char *symbol, int len, int pc)
 {
+    /*把字符串表的索引的值写入符号表的内存段中
+    elf_symtab          16个字节如下
+    offset + 0x00:      elf_strtab_index
+    offset + 0x04:      pc
+    offset + 0x08:      0
+    offset + 0x0B:      pc == 0 ? 0 : 1 << 16
+    */
     elf_write_symbol_int(elf_strtab_index);
     elf_write_symbol_int(pc);
     elf_write_symbol_int(0);
     elf_write_symbol_int(pc == 0 ? 0 : 1 << 16);
 
+    /*把符号写入字符串表的内存段中，字符串结尾为0，符号索引+1
+    elf_strtab + elf_strtab_index
+    v
+    |<-  symbol  ->|0|  ...
+    */
     strncpy(elf_strtab + elf_strtab_index, symbol, len);
     elf_strtab_index += len;
     elf_strtab[elf_strtab_index++] = 0;

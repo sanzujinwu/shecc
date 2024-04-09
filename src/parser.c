@@ -112,6 +112,7 @@ int get_unary_operator_prio(opcode_t op)
     }
 }
 
+/* 读取下一个标记是什么操作符，读到则返回，如果都不是，则返回OP_generic */
 opcode_t get_operator()
 {
     opcode_t op = OP_generic;
@@ -156,6 +157,7 @@ opcode_t get_operator()
     return op;
 }
 
+/* 读取数字常量 */
 int read_numeric_constant(char buffer[])
 {
     int i = 0;
@@ -180,6 +182,7 @@ int read_numeric_constant(char buffer[])
     return value;
 }
 
+/* 读取连续表达式操作数 */
 int read_constant_expr_operand()
 {
     char buffer[MAX_ID_LEN];
@@ -196,6 +199,7 @@ int read_constant_expr_operand()
         return value;
     }
 
+    /* 识别 #if defined a b */
     if (lex_peek(T_identifier, buffer) && !strcmp(buffer, "defined")) {
         char lookup_alias[MAX_TOKEN_LEN];
 
@@ -211,12 +215,28 @@ int read_constant_expr_operand()
     return -1;
 }
 
+/* 读取常量中缀表达式，参数为优先级 */
 int read_constant_infix_expr(int precedence)
 {
+    /* 本函数的理解核心点在于递归
+     * 递归时把既有优先级传递给下一层，返回时把计算结果，即lhs的值带回给赋值给上一层的rhs
+     * 如此得到同一层的lhs和rhs进行计算
+     * 递归的基本单元为处理一个操作数和一个操作符，当最后一个单元不完整，即读取了操作数后面再没有操作符时，终止循环，返回递归的上一层
+     */
+    /* left-handside right-handside*/
     int lhs, rhs, current_precedence;
     opcode_t op;
 
     /* Evaluate unary expression first */
+    /* 先计算一元表达式 unary [ˈjuːnəri]
+     * 读取下一个操作符
+     * 获取其优先级
+     * 比较既有操作符和当前操作符的优先级
+     * 如果当前操作符优先级更高
+     *  递归，继续计算右侧表达式
+     *  做单目计算
+     * 如果并非操作符，读取操作数
+     */
     op = get_operator();
     current_precedence = get_unary_operator_prio(op);
     if (current_precedence != 0 && current_precedence >= precedence) {
@@ -238,10 +258,17 @@ int read_constant_infix_expr(int precedence)
             error("Unexpected unary token while evaluating constant");
         }
     } else {
+        /* 当前并非操作符时，读取操作数 */
         lhs = read_constant_expr_operand();
     }
 
     while (1) {
+        /* 读取下一个操作符
+         * 获得操作符优先级
+         * 如果优先级为0（包括下一个标记并非操作符的情况）或优先级小于等于已有优先级，循环终止
+         * 递归计算符号右侧表达式
+         * 左右两侧操作数计算结果，赋值给lhs
+         */
         op = get_operator();
         current_precedence = get_operator_prio(op);
 
@@ -353,10 +380,18 @@ void read_defined_macro()
 /* read preprocessor directive at each potential positions:
  * e.g. global statement / body statement
  */
+/* 读取每个潜在位置的预处理器指令
+ * 其中多次用调用以下函数
+ * lex_peek     匹配标记类型    不读下一个标记    匹配成功返回1，否则为0
+ * lex_expect   匹配标记类型    读取下一个标记    匹配失败退出，无返回值
+ * lex_accept   匹配标记类型    读取下一个标记    匹配成功返回1，否则为0
+ * lex_ident    匹配标记类型    不读下一个标记    匹配失败退出，无返回值
+ */
 int read_preproc_directive()
 {
     char token[MAX_ID_LEN];
 
+    /* 查看下一个标记，如果标记类型是匹配的，将标记的文字复制到值。*/
     if (lex_peek(T_cppd_include, token)) {
         lex_expect(T_cppd_include);
 
@@ -383,6 +418,7 @@ int read_preproc_directive()
 
         lex_ident(T_identifier, alias);
 
+        /* 添加别名 */
         if (lex_peek(T_numeric, value)) {
             lex_expect(T_numeric);
             add_alias(alias, value);
@@ -390,6 +426,12 @@ int read_preproc_directive()
             lex_expect(T_string);
             add_alias(alias, value);
         } else if (lex_accept(T_open_bracket)) { /* function-like macro */
+            /* 增加宏函数
+             * 循环识别标识符，保存进宏函数的参数数组
+             * 如果有省略号，则为可变参数
+             * 记录源码索引为函数体开始位置
+             * 跳过该行剩余部分
+             */
             macro_t *macro = add_macro(alias);
 
             skip_newline = 0;
@@ -420,6 +462,7 @@ int read_preproc_directive()
         return 1;
     }
     if (lex_peek(T_cppd_error, NULL)) {
+        /* #error编译指示字，用于自定义程序员特有的编译错误消息。错误处理程序 */
         int i = 0;
         char error_diagnostic[MAX_LINE_LEN];
 
@@ -433,6 +476,8 @@ int read_preproc_directive()
     if (lex_accept(T_cppd_if)) {
         preproc_match = read_constant_expr() != 0;
 
+        /* 预处理匹配就跳过空格，
+         * 不匹配就跳到下一个`T_cppd_elif`, `T_cppd_else` or `cppd_endif` */
         if (preproc_match) {
             skip_whitespace();
         } else {
@@ -496,15 +541,24 @@ int read_preproc_directive()
 
 void read_parameter_list_decl(func_t *fd, int anon);
 
+/* 读取变量声明 */
 void read_inner_var_decl(var_t *vd, int anon, int is_param)
 {
     vd->init_val = 0;
     vd->is_ptr = 0;
 
+    /* 读取‘*’，判断几级指针 */
     while (lex_accept(T_asterisk))
         vd->is_ptr++;
 
     /* is it function pointer declaration? */
+    /* 是否函数指针声明？
+     * 函数指针的声明方法为：
+     * 返回值类型 ( * 指针变量名) ([形参列表])
+     * 例：
+     * int (*f) (int x);
+     * 识别左括号、‘*’、变量名（也就是函数名作为变量）、右括号、参数列表
+     */
     if (lex_accept(T_open_bracket)) {
         func_t func;
         lex_expect(T_asterisk);
@@ -515,10 +569,16 @@ void read_inner_var_decl(var_t *vd, int anon, int is_param)
     } else {
         if (anon == 0) {
             lex_ident(T_identifier, vd->var_name);
+            /* 标识符后没有括号，标识符也不是参数
+             * 根据是否全局变量，增加对应的中间语言，记录中间语言的操作符
+             * 中间语言以数组形式在初始化时申请内存，以索引记录使用个数
+             * 把变量声明的指针记录在中间语言中
+             */
             if (!lex_peek(T_open_bracket, NULL) && !is_param) {
                 if (vd->is_global) {
                     ph1_ir_t *ir = add_global_ir(OP_allocat);
                     ir->src0 = vd;
+                    /* 把变量压入三地址代码的操作数的栈 */
                     opstack_push(vd);
                 } else {
                     ph1_ir_t *ph1_ir;
@@ -528,6 +588,7 @@ void read_inner_var_decl(var_t *vd, int anon, int is_param)
             }
         }
         if (lex_accept(T_open_square)) {
+            /* 数组变量 */
             char buffer[10];
 
             /* array with size */
@@ -549,6 +610,7 @@ void read_inner_var_decl(var_t *vd, int anon, int is_param)
 }
 
 /* starting next_token, need to check the type */
+/* 读取完整结构体变量声明 */
 void read_full_var_decl(var_t *vd, int anon, int is_param)
 {
     lex_accept(T_struct); /* ignore struct definition */
@@ -563,6 +625,7 @@ void read_partial_var_decl(var_t *vd, var_t *template)
     read_inner_var_decl(vd, 0, 0);
 }
 
+/* 读取参数列表 */
 void read_parameter_list_decl(func_t *fd, int anon)
 {
     int vn = 0;
@@ -574,6 +637,7 @@ void read_parameter_list_decl(func_t *fd, int anon)
     fd->num_params = vn;
 
     /* Up to `MAX_PARAMS` parameters are accepted for the variadic function. */
+    /* 可变参数 */
     if (lex_accept(T_elipsis))
         fd->va_args = 1;
 
@@ -1735,6 +1799,7 @@ void eval_ternary_imm(int cond, char *token)
     }
 }
 
+/* 变量赋值 */
 int read_global_assignment(char *token)
 {
     ph1_ir_t *ph1_ir;
@@ -1928,6 +1993,10 @@ basic_block_t *read_code_block(func_t *func,
                                block_t *parent,
                                basic_block_t *bb);
 
+/* 读取代码块中的语句
+ * 主要识别各种控制相关的关键字
+ * 通过基本块之间不同的连接类型建立流程图
+ */
 basic_block_t *read_body_statement(block_t *parent, basic_block_t *bb)
 {
     char token[MAX_ID_LEN];
@@ -1949,6 +2018,10 @@ basic_block_t *read_body_statement(block_t *parent, basic_block_t *bb)
     if (lex_peek(T_open_curly, NULL))
         return read_code_block(parent->func, parent->macro, parent, bb);
 
+    /* 如果直接返回没有返回值，把当前基本块bb和函数的最后一个基本块用NEXT连接起来
+     * 如果有返回值，处理完返回值再连接基本块
+     * 函数已结束，所以返回NULL
+     */
     if (lex_accept(T_return)) {
         /* return void */
         if (lex_accept(T_semicolon)) {
@@ -1974,6 +2047,13 @@ basic_block_t *read_body_statement(block_t *parent, basic_block_t *bb)
         return NULL;
     }
 
+    /* 用生成的三个标签分别表示if语句判断为真、假及语句结束
+     * 创造then_、then_body、then_next_基本块
+     * 以及else_、else_body、else_next_基本块
+     * 将不同的基本块以不同的方式连接起来
+     * 使得每一个代码块都只有一个起始基本块和一个结束基本块（如果有多个基本块可以结束，把他们都连接到一个新增的结束基本块，类似构建NFA）
+     * 返回最后一个基本块
+     */
     if (lex_accept(T_if)) {
         char label_true[MAX_VAR_LEN], label_false[MAX_VAR_LEN],
             label_endif[MAX_VAR_LEN];
@@ -2616,12 +2696,14 @@ basic_block_t *read_body_statement(block_t *parent, basic_block_t *bb)
     return NULL;
 }
 
+/* 读取代码块 */
 basic_block_t *read_code_block(func_t *func,
                                macro_t *macro,
                                block_t *parent,
                                basic_block_t *bb)
 {
     block_t *blk = add_block(parent, func, macro);
+    /* 作用域 */
     bb->scope = blk;
 
     add_ph1_ir(OP_block_start);
@@ -2640,6 +2722,10 @@ basic_block_t *read_code_block(func_t *func,
 
 void var_add_killed_bb(var_t *var, basic_block_t *bb);
 
+/* 读取函数体
+ * 一个代码块由多个基本块组成    basic_block
+ * 在第一个基本块fn->bbs中记录参数列表
+ */
 void read_func_body(func_t *fdef, fn_t *fn)
 {
     block_t *blk = add_block(NULL, fdef, NULL);
@@ -2659,8 +2745,10 @@ void read_func_body(func_t *fdef, fn_t *fn)
 }
 
 /* if first token is type */
+/* 本函数处理声明，分为两大分支，定义函数，声明变量 */
 void read_global_decl(block_t *block)
 {
+    /* 从block中获得一个变量的空间var */
     var_t *var = require_var(block);
     var->is_global = 1;
 
@@ -2669,17 +2757,25 @@ void read_global_decl(block_t *block)
 
     if (lex_peek(T_open_bracket, NULL)) {
         /* function */
+        /* 在FUNCS数组中增加一个成员
+         * 把申请的var变量空间用于函数返回
+         */
         func_t *fd = add_func(var->var_name);
         memcpy(&fd->return_def, var, sizeof(var_t));
         var->is_global = 0;
         block->next_local--;
 
+        /* 参数列表 */
         read_parameter_list_decl(fd, 0);
 
+        /* 函数体 */
         if (lex_peek(T_open_curly, NULL)) {
             ph1_ir_t *ph1_ir = add_ph1_ir(OP_define);
             strcpy(ph1_ir->func_name, var->var_name);
 
+            /* func_t *fd   数组成员的指针
+             * fn_t *fn     链表节点的指针   动态申请
+             */
             fn_t *fn = add_fn();
             fn->func = fd;
             fd->fn = fn;
@@ -2696,6 +2792,7 @@ void read_global_decl(block_t *block)
     /* is a variable */
     if (lex_accept(T_assign)) {
         if (var->is_ptr == 0 && var->array_size == 0) {
+            /* 变量赋值 */
             read_global_assignment(var->var_name);
             lex_expect(T_semicolon);
             return;
@@ -2712,12 +2809,32 @@ void read_global_decl(block_t *block)
     error("Syntax error in global declaration");
 }
 
+/* 这个函数处理源代码中的一个语句
+ * 它只在上一层parse_internal中调用一次
+ * 在文件结束T_eof前不断循环
+ * 语句都以分号T_semicolon结尾
+ * 函数中有三个大的判断分支，分别对应了struct、typedef、T_identifier
+ * T_identifier标识符是最主要的分支，对应了
+ */
 void read_global_statement()
 {
     char token[MAX_ID_LEN];
     block_t *block = &BLOCKS[0]; /* global block */
 
     if (lex_accept(T_struct)) {
+        /* 定义一个结构体类型
+         * 匹配'struct'，识别下一个标记
+         * 在类型数组中查找类型名
+         * 类型名赋值
+         * 识别左大括号
+         * 循环给结构体成员赋值
+         *  用fields[]记录结构体成员
+         *  记录偏移量大小
+         *  识别分号
+         * 识别右大括号
+         * 记录结构体大小，成员个数，基本类型
+         * 识别分号
+         */
         int i = 0, size = 0;
 
         lex_ident(T_identifier, token);
@@ -2742,6 +2859,7 @@ void read_global_statement()
         type->base_type = TYPE_struct;
         lex_expect(T_semicolon);
     } else if (lex_accept(T_typedef)) {
+        /* 定义类型别名-枚举 */
         if (lex_accept(T_enum)) {
             int val = 0;
             type_t *type = add_type();
@@ -2763,6 +2881,12 @@ void read_global_statement()
             strcpy(type->type_name, token);
             lex_expect(T_semicolon);
         } else if (lex_accept(T_struct)) {
+            /* 定义类型别名-结构体 
+             * 如果该结构体类型已存在，在TYPES中增加一项类型名
+             * 把该结构体类型赋值给新增类型名的base_type
+             * 把读入的标记赋值给新增类型名的type_name
+             * 从而把新增类型别名和已有的结构体类型联系起来
+             */
             int i = 0, size = 0, has_struct_def = 0;
             type_t *tag = NULL, *type = add_type();
 
@@ -2779,6 +2903,10 @@ void read_global_statement()
                 }
             }
 
+            /* 如果该结构体类型不存在
+             * 先定义结构体类型
+             * 再建立类型名和别名的联系
+             */
             /* typedef with struct definition */
             if (lex_accept(T_open_curly)) {
                 has_struct_def = 1;
@@ -2812,6 +2940,7 @@ void read_global_statement()
 
             lex_expect(T_semicolon);
         } else {
+            /* 其他类型名的别名 */
             char base_type[MAX_TYPE_LEN];
             type_t *base;
             type_t *type = add_type();
@@ -2826,6 +2955,7 @@ void read_global_statement()
             lex_expect(T_semicolon);
         }
     } else if (lex_peek(T_identifier, NULL)) {
+
         read_global_decl(block);
     } else
         error("Syntax error in global statement");
@@ -2838,6 +2968,13 @@ void parse_internal()
     func_t *func;
 
     /* built-in types */
+    /* 内置数据类型
+     * 增加数据类型并指定基本类型、该类型数据的大小
+     * TYPES是一个类型指针，指向初始化时申请的固定大小的内存
+     * 内存大小为（类型结构体大小*最大类型数），因此，该段内存也可以视为一个数组
+     * 增加变量类型即增加对一个数组成员的赋值，用索引types_idx记录已使用类型总数
+     * add_named_type()返回数组成员的地址 
+     */
     type = add_named_type("void");
     type->base_type = TYPE_void;
     type->size = 0;
@@ -2850,9 +2987,14 @@ void parse_internal()
     type->base_type = TYPE_int;
     type->size = 4;
 
+    /* 增加一个块
+     * 和上面的TYPES类似，块的指针是BLOCKS
+     * 增加一个块即对一个数组成员的赋值，用索引blocks_idx记录已使用块总数
+     */
     add_block(NULL, NULL, NULL); /* global block */
     elf_add_symbol("", 0, 0);    /* undef symbol */
 
+    /*增加别名*/
     /* architecture defines */
     add_alias(ARCH_PREDEFINED, "1");
 
@@ -2876,14 +3018,18 @@ void parse_internal()
     next_char = SOURCE[0];
     lex_expect(T_start);
 
+    /* 开始词法分析主体，只要语法分析返回的标记不是EOF文件结束，就一直处理 */
     do {
+        /* 预处理 */
         if (read_preproc_directive())
             continue;
+        /* 源代码的语句 */
         read_global_statement();
     } while (!lex_accept(T_eof));
 }
 
 /* Load specified source file and referred inclusion recursively */
+/* 载入指定源文件，递归地载入相关包含文件 */
 void load_source_file(char *file)
 {
     char buffer[MAX_LINE_LEN];
@@ -2897,6 +3043,7 @@ void load_source_file(char *file)
             fclose(f);
             return;
         }
+        /*此处的文本比较代码不能包含符合C语法的全部包含格式，比较简陋。比如include后的空格可以不止一个*/
         if (!strncmp(buffer, "#include ", 9) && (buffer[9] == '"')) {
             char path[MAX_LINE_LEN];
             int c = strlen(file) - 1;
@@ -2910,8 +3057,10 @@ void load_source_file(char *file)
             path[c] = 0;
             buffer[strlen(buffer) - 2] = 0;
             strcpy(path + c, buffer + 10);
+            /*获取包含的用户文件，递归载入*/
             load_source_file(path);
         } else {
+            /*SOURCE在global_init中申请内存，把所有递归包含的代码复制进去*/
             strcpy(SOURCE + source_idx, buffer);
             source_idx += strlen(buffer);
         }

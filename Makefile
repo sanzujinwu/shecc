@@ -100,7 +100,7 @@ check-snapshots: $(OUT)/$(STAGE0) $(SNAPSHOTS) tests/check-snapshots.sh
 #	先决条件：7 ./src/main.c
 #	打印
 #	编译出目标文件，-c只编译生成目标文件
-#	-MMD -MF out/src/main.o.d out/src/main.c
+#	-MMD -MF out/src/main.o.d src/main.c
 #	表示生成main.c的依赖关系文件main.o.d，$<指当前规则的第一个先决条件
 $(OUT)/%.o: %.c
 	$(VECHO) "  CC\t$@\n"

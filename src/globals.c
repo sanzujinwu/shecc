@@ -85,27 +85,44 @@ char *elf_section;
  * function in FUNCS. Otherwise, the return value is the value of the parameter
  * @funcs_index.
  */
+/*
+ * 前缀树（字典树）插入字符串
+ * 前缀树的节点以节点数组的形式存储，地址始于FUNC_TRIES，索引为func_tries_idx，初始值为1
+ * 节点结构体的成员index记录函数索引funcs_index，成员next[]记录包含下一个字符的前缀节点在节点数组中的序数
+ */
 int insert_trie(trie_t *trie, char *name, int funcs_index)
 {
     char first_char = *name;
     int fc = first_char;
     int i;
+    /* 
+     * 指针指向0，字符串已结束
+     * 如果该字符串不存在，把函数索引赋值给前缀树trie->index，
+     * 返回前缀树trie->index，即函数索引
+     */
     if (!fc) {
         if (!trie->index)
             trie->index = funcs_index;
         return trie->index;
     }
+    /* 如果当前前缀不存在，那么增加 */
     if (!trie->next[fc]) {
         /* FIXME: The func_tries_idx variable may exceed the maximum number,
          * which can lead to a segmentation fault. This issue is affected by the
          * number of functions and the length of their names. The proper way to
          * handle this is to dynamically allocate a new element.
          */
+        /* 翻译：func_tries_idx自增可能超出最大值导致段错误，这个问题是出于对函数数量和函数名长度的考虑，更合适的方式是动态申请
+         * func_tries_idx初始值为1
+         * trie->next[fc]记录增加前缀的序数 */
         trie->next[fc] = func_tries_idx++;
+        /* 第一次到达FUNC_TRIES[trie->next[fc]]节点时，初始化该节点 
+         * 不过既然已经选择用数组的方式存储节点，为什么申请连续内存的时候不统一初始化？*/
         for (i = 0; i < 128; i++)
             FUNC_TRIES[trie->next[fc]].next[i] = 0;
         FUNC_TRIES[trie->next[fc]].index = 0;
     }
+    /* 继续查找下一个字符 */
     return insert_trie(&FUNC_TRIES[trie->next[fc]], name + 1, funcs_index);
 }
 
@@ -307,7 +324,9 @@ int find_macro_param_src_idx(char *name, block_t *parent)
 func_t *add_func(char *name)
 {
     func_t *fn;
+    /* 查找或插入函数名，返回索引 */
     int index = insert_trie(FUNC_TRIES, name, funcs_idx);
+    /* 如果是最新添加的，索引自增，记录函数名 */
     if (index == funcs_idx) {
         fn = &FUNCS[funcs_idx++];
         strcpy(fn->return_def.var_name, name);
@@ -462,6 +481,12 @@ basic_block_t *bb_create(block_t *parent)
 }
 
 /* The pred-succ pair must have only one connection */
+/* predecessor  前任
+ * succeed      后继
+ * 根据连接类型，把两个基本块用指针连接起来
+ * 后继基本块可以和很多前任连接，这里遍历succ->prev[]数组找到第一个未使用的成员，赋值，建立从后继到前任的连接
+ * 前任基本块的下一个基本块只有三种去向，对应三种连接类型，根据连接类型给指针赋值，建立从前任到后继的连接
+ */
 void bb_connect(basic_block_t *pred,
                 basic_block_t *succ,
                 bb_connection_type_t type)
@@ -638,6 +663,16 @@ void error(char *msg)
 {
     /* Construct error source diagnostics, enabling precise identification of
      * syntax and logic issues within the code. */
+    /* 构建错误源诊断，能够精确识别代码中的语法和逻辑问题
+     * 向后查到第一个'\n'，start_idx赋值为该换行结束的位置索引
+     * 向前查到第一个'\n'，把该行内容复制到diagnostic
+     * 填充多个空格符和一个^，复制到diagnostic已有内容之后
+     * 打印错误
+     * 最终呈现效果为
+     * Error %s at source location %d
+     * This is the error statement
+     *             ^
+     */
     int offset, start_idx, i = 0;
     char diagnostic[512 /* MAX_LINE_LEN * 2 */];
 

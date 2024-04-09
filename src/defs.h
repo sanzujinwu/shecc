@@ -72,6 +72,7 @@ typedef enum {
 /* IR opcode */
 typedef enum {
     /* intermediate use in front-end. No code generation */
+    /* 前端中间使用。没有代码生成 */
     OP_generic,
 
     OP_phi,
