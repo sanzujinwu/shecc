@@ -610,7 +610,7 @@ void read_inner_var_decl(var_t *vd, int anon, int is_param)
 }
 
 /* starting next_token, need to check the type */
-/* 读取完整结构体变量声明 */
+/* 读取完整变量声明 */
 void read_full_var_decl(var_t *vd, int anon, int is_param)
 {
     lex_accept(T_struct); /* ignore struct definition */
@@ -2735,11 +2735,16 @@ void read_func_body(func_t *fdef, fn_t *fn)
     int i;
     for (i = 0; i < fdef->num_params; i++) {
         /* arguments */
+        /* 把函数数组成员中保存的参数信息传递给函数链表节点的第一个基本块bbs
+         * 把当前参数的地址记录在该参数变量结构体的base中
+         * 形参变量记录引用它的基本块
+         */
         add_symbol(fn->bbs, &fdef->param_defs[i]);
         fdef->param_defs[i].base = &fdef->param_defs[i];
         var_add_killed_bb(&fdef->param_defs[i], fn->bbs);
     }
     basic_block_t *body = read_code_block(fdef, NULL, NULL, fn->bbs);
+    /* 函数体的最后一个基本块连接函数退出基本块fn->exit */
     if (body)
         bb_connect(body, fn->exit, NEXT);
 }
@@ -2757,8 +2762,9 @@ void read_global_decl(block_t *block)
 
     if (lex_peek(T_open_bracket, NULL)) {
         /* function */
-        /* 在FUNCS数组中增加一个成员
-         * 把申请的var变量空间用于函数返回
+        /* 以var->var_name为函数名，在FUNCS数组中增加一个成员
+         * 把从block中获得的变量相关数据赋值给函数返回值变量
+         * block局部变量数量减一，即释放var这个变量
          */
         func_t *fd = add_func(var->var_name);
         memcpy(&fd->return_def, var, sizeof(var_t));
@@ -2768,7 +2774,13 @@ void read_global_decl(block_t *block)
         /* 参数列表 */
         read_parameter_list_decl(fd, 0);
 
-        /* 函数体 */
+        /* 有函数体，就是函数定义，没有就只是声明
+         * 以操作符为入参，增加第一阶段中间语言
+         * 函数名拷贝给ph1_ir
+         * 增加函数链表的节点
+         * 以数组成员和链表节点形式组织的函数信息互相记录指针
+         * 以两个指针为入参，读取函数体
+         */
         if (lex_peek(T_open_curly, NULL)) {
             ph1_ir_t *ph1_ir = add_ph1_ir(OP_define);
             strcpy(ph1_ir->func_name, var->var_name);
@@ -2812,9 +2824,9 @@ void read_global_decl(block_t *block)
 /* 这个函数处理源代码中的一个语句
  * 它只在上一层parse_internal中调用一次
  * 在文件结束T_eof前不断循环
- * 语句都以分号T_semicolon结尾
+ * 语句都以分号T_semicolon结尾，除非是函数定义
  * 函数中有三个大的判断分支，分别对应了struct、typedef、T_identifier
- * T_identifier标识符是最主要的分支，对应了
+ * T_identifier标识符是最主要的分支，对应了函数定义
  */
 void read_global_statement()
 {
@@ -3020,6 +3032,13 @@ void parse_internal()
 
     /* 开始词法分析主体，只要语法分析返回的标记不是EOF文件结束，就一直处理 */
     do {
+        /* 调试代码 */
+        if (source_idx > 16229)
+        {
+            /* 进入原函数的主体部分，在这之前是添加的libc.c内容。可以在此处加断点 */
+            printf("start\n");
+        }
+
         /* 预处理 */
         if (read_preproc_directive())
             continue;

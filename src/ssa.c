@@ -293,6 +293,12 @@ void bb_add_killed_var(basic_block_t *bb, var_t *var)
     bb->live_kill[bb->live_kill_idx++] = var;
 }
 
+/* 变量var记录引用它的基本块
+ * 对变量的全部引用的基本块记录在链表中
+ * 链表节点为ref_block_t *ref
+ * 节点包含一个基本块的指针和指向下一个节点的指针
+ * var->ref_block_list中记录链表的头尾节点
+ */
 void var_add_killed_bb(var_t *var, basic_block_t *bb)
 {
     int found = 0;

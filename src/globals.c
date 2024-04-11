@@ -550,6 +550,11 @@ void bb_disconnect(basic_block_t *pred, basic_block_t *succ)
 }
 
 /* The symbol is an argument of function or the variable in declaration */
+/* 申请一个符号变量sym的内存
+ * 用sym->var记录变量var的地址
+ * 用sym->index记录节点在链表中的序数
+ * 把sym作为节点记录到基本块bb的符号链表后面
+ */
 void add_symbol(basic_block_t *bb, var_t *var)
 {
     symbol_t *sym;

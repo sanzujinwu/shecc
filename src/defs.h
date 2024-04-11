@@ -205,6 +205,11 @@ typedef struct {
 } func_t;
 
 /* block definition */
+/* 代码段定义
+ * 本代码段内的局部变量数组，最多可以记录MAX_LOCALS个
+ * 以next_local保存已经记录的局部变量的数量
+ * parent指向上级代码段
+ */
 struct block {
     var_t locals[MAX_LOCALS];
     int next_local;
