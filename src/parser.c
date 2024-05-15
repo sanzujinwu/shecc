@@ -539,6 +539,13 @@ int read_preproc_directive()
     return 0;
 }
 
+/* anon意为不久、再会、另一次，为了记录是否循环调用相同函数，因为存在这样的调用关系
+ *  read_parameter_list_decl                内层
+ *      read_inner_var_decl                 |
+ *          read_full_var_decl              |
+ *              read_parameter_list_decl    外层
+ * 内层的read_parameter_list_decl，为其anon参数传入1
+ */
 void read_parameter_list_decl(func_t *fd, int anon);
 
 /* 读取变量声明 */
@@ -651,6 +658,7 @@ void read_literal_param(block_t *parent, basic_block_t *bb)
     int index;
     char literal[MAX_TOKEN_LEN];
 
+    /* 读取字符串后放在数据段 elf_data 中，返回index是其开始索引 */
     lex_ident(T_string, literal);
     index = write_symbol(literal, strlen(literal) + 1);
 
@@ -794,6 +802,7 @@ void read_lvalue(lvalue_t *lvalue,
 /* Maintain a stack of expression values and operators, depending on next
  * operators' priority. Either apply it or operator on stack first.
  */
+/* 根据下一个运算符的优先级维护表达式值和运算符的堆栈。要么先应用它，要么先将运算符应用到堆栈上 */
 void read_expr_operand(block_t *parent, basic_block_t **bb)
 {
     ph1_ir_t *ph1_ir;
@@ -1063,6 +1072,14 @@ void read_expr(block_t *parent, basic_block_t **bb)
     opcode_t oper_stack[10];
     int oper_stack_idx = 0;
 
+    /* 操作数的栈为全局变量 operand_stack[operand_stack_idx]
+     * 操作符的栈为当前函数的局部变量 oper_stack[oper_stack_idx++]
+     * 一数一符为一组
+     * 一组不全，即一数后无符号时，以OP_generic代替符号
+     * 若存在完整的两组，比较两个符号的优先级
+     *   若左侧符号优先级大于等于右侧，出栈，计算，结果再入栈
+     *   否则数、符入栈
+     */
     read_expr_operand(parent, bb);
 
     op = get_operator();
@@ -1436,6 +1453,7 @@ void read_ternary_operation(block_t *parent, basic_block_t **bb)
     strcpy(false_label, gen_label());
     strcpy(end_label, gen_label());
 
+    /* 这里应该先判断是否返回，再生成标签。会导致生成了不需要的标签 */
     if (!lex_accept(T_question))
         return;
 
@@ -1996,6 +2014,7 @@ basic_block_t *read_code_block(func_t *func,
 /* 读取代码块中的语句
  * 主要识别各种控制相关的关键字
  * 通过基本块之间不同的连接类型建立流程图
+ * 
  */
 basic_block_t *read_body_statement(block_t *parent, basic_block_t *bb)
 {
@@ -2047,12 +2066,18 @@ basic_block_t *read_body_statement(block_t *parent, basic_block_t *bb)
         return NULL;
     }
 
-    /* 用生成的三个标签分别表示if语句判断为真、假及语句结束
+    /* 
+     * 原函数的执行顺序、ph1_ir、标签的顺序和基本块连接顺序需要分别厘清
+     * 原函数根据每个判断的真假决定执行哪个分支，假的分支不执行
+     * 当有多个else if时，递归本函数
+     * ph1_ir相当于把原函数if语句的二叉树结构改为线性结构，以标签做记号
+     * 用生成的三个标签分别表示if语句判断为真、假及语句结束
+     * 当if语句中有else时，label_endif意味着分支结束，合并归一，没有else时，label_false意味着分支结束，合并归一。
      * 创造then_、then_body、then_next_基本块
      * 以及else_、else_body、else_next_基本块
      * 将不同的基本块以不同的方式连接起来
      * 使得每一个代码块都只有一个起始基本块和一个结束基本块（如果有多个基本块可以结束，把他们都连接到一个新增的结束基本块，类似构建NFA）
-     * 返回最后一个基本块
+     * 返回最后一个基本块，如果没有（比如所有分支都直接return了），返回NULL
      */
     if (lex_accept(T_if)) {
         char label_true[MAX_VAR_LEN], label_false[MAX_VAR_LEN],
@@ -2762,7 +2787,7 @@ void read_global_decl(block_t *block)
 
     if (lex_peek(T_open_bracket, NULL)) {
         /* function */
-        /* 以var->var_name为函数名，在FUNCS数组中增加一个成员
+        /* 以var->var_name为函数名，在FUNCS数组中增加一个成员，函数并非全局变量，var->is_global重新置为0
          * 把从block中获得的变量相关数据赋值给函数返回值变量
          * block局部变量数量减一，即释放var这个变量
          */
@@ -3036,7 +3061,7 @@ void parse_internal()
         if (source_idx > 16229)
         {
             /* 进入原函数的主体部分，在这之前是添加的libc.c内容。可以在此处加断点 */
-            printf("start\n");
+            printf("source_idx=%d\n", source_idx);
         }
 
         /* 预处理 */

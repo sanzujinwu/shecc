@@ -6,6 +6,13 @@
  */
 
 /* cfront does not accept structure as an argument, pass pointer */
+/* 用于遍历基本块、即CFG流程图节点
+ * 入参包括待分析的函数、节点、计算函数的指针，每次调用处理一个节点，通过函数内递归调用完成一个函数流程图各节点排序
+ * 计算函数的指针赋值给args->preorder_cb或args->postorder_cb
+ * args->preorder_cb非空为先序、args->postorder_cb非空为后序
+ * 待分析的函数遍历之前args->fn->visited自增一次，每个节点的args->bb->next->visited和函数的visited进行比较
+ * 即可知在本次函数遍历中，当前节点是否已经计算过。如已算过，不重复计算
+ */
 void bb_forward_traversal(bb_traversal_args_t *args)
 {
     args->bb->visited++;
@@ -76,8 +83,16 @@ void bb_reverse_index(fn_t *fn, basic_block_t *bb)
     bb->rpo = fn->bb_cnt - bb->rpo;
 }
 
+/* 根据节点的bb->rpo大小从小到大排序， bb->rpo_next指向下一个节点*/
 void bb_build_rpo(fn_t *fn, basic_block_t *bb)
 {
+    /* 插入法排序，已有的序列从prev开始，curr是其指向的下一个节点
+     * prev的初始值为函数的第一个基本块，即流程图CFG的第一个节点
+     * 随着计算进行，prev和curr的指向会更新
+     * 入参bb是待插入的节点
+     * bb和已有序列不断比较，如不大于已有序列某节点，插入已有序列，更新各节点bb->rpo_next指向关系
+     * bb如大于已有序列全部节点，插入序列末尾
+     */
     basic_block_t *prev, *curr;
 
     if (fn->bbs == bb)
@@ -92,6 +107,7 @@ void bb_build_rpo(fn_t *fn, basic_block_t *bb)
         }
         bb->rpo_next = curr;
         prev->rpo_next = bb;
+        /* 这里多余，返回前不需要给局部变量赋值了 */
         prev = curr;
         return;
     }
@@ -99,6 +115,7 @@ void bb_build_rpo(fn_t *fn, basic_block_t *bb)
     prev->rpo_next = bb;
 }
 
+/* 计算CFG节点的RPO即逆后序 */
 void build_rpo()
 {
     fn_t *fn;
@@ -106,15 +123,18 @@ void build_rpo()
     for (fn = FUNC_LIST.head; fn; fn = fn->next) {
         args->fn = fn;
         args->bb = fn->bbs;
-
+        
+        /* 通过后序遍历的方式为节点排序，序号保存在bb->rpo中 */
         fn->visited++;
         args->postorder_cb = bb_index_rpo;
         bb_forward_traversal(args);
 
+        /* 逆后序的序号为N-后序遍历的序号，即bb->rpo = fn->bb_cnt - bb->rpo; */
         fn->visited++;
         args->postorder_cb = bb_reverse_index;
         bb_forward_traversal(args);
 
+        /* 根据逆后序的序号，建立节点的链表 */
         fn->visited++;
         args->postorder_cb = bb_build_rpo;
         bb_forward_traversal(args);
@@ -144,6 +164,8 @@ basic_block_t *intersect(basic_block_t *i, basic_block_t *j)
  *   Cooper, Keith D.; Harvey, Timothy J.; Kennedy, Ken (2001).
  *   "A Simple, Fast Dominance Algorithm"
  */
+
+/* 计算直接支配者 */
 void build_idom()
 {
     fn_t *fn;
@@ -219,6 +241,7 @@ void bb_build_dom(fn_t *fn, basic_block_t *bb)
     }
 }
 
+/* 建立支配者树 */
 void build_dom()
 {
     fn_t *fn;
@@ -252,6 +275,7 @@ void bb_build_df(fn_t *fn, basic_block_t *bb)
             }
 }
 
+/* 对所有函数CFG通过前序遍历建立支配边界 */
 void build_df()
 {
     fn_t *fn;
@@ -1035,9 +1059,18 @@ void dump_dom(char name[])
 
 void ssa_build(int dump_ir)
 {
+    /* reverse post-order（RPO）逆后序 */
     build_rpo();
+
+    /* 直接支配节点IDOM，IDOM(n)指严格支配n的节点集 DOM(n)-n 中和n最近的节点。
+     * 因为按定义每条路径都包含该节点，不独属于某个分支，所以IDOM(n)最多只可能有一个（入口节点没有）
+     * 由IDOM(n)作为n的父节点可以画出控制流图CFG的支配者树（n最多只有一个父节点，所以为树） */
     build_idom();
+
+    /* 支配节点集合DOM，DOM(n)指从入口节点到n的每条路径都包含的节点的集合，就是从开始走到n绕不过去的所有节点*/
     build_dom();
+
+    /* 直接边界DF */
     build_df();
 
     solve_globals();

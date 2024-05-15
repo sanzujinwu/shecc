@@ -390,6 +390,10 @@ var_t *find_member(char token[], type_t *type)
     return NULL;
 }
 
+/* 根据标记查找局部变量
+ * 先从当前代码块的局部变量查起，然后查找上一级的代码块，以此类推
+ * 如果多级代码块的局部变量找不到，那么查找函数形参
+ */
 var_t *find_local_var(char *token, block_t *block)
 {
     int i;
