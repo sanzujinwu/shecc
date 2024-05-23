@@ -2762,7 +2762,7 @@ void read_func_body(func_t *fdef, fn_t *fn)
         /* arguments */
         /* 把函数数组成员中保存的参数信息传递给函数链表节点的第一个基本块bbs
          * 把当前参数的地址记录在该参数变量结构体的base中
-         * 形参变量记录引用它的基本块
+         * 形参变量记录定义它的基本块
          */
         add_symbol(fn->bbs, &fdef->param_defs[i]);
         fdef->param_defs[i].base = &fdef->param_defs[i];

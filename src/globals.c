@@ -581,6 +581,7 @@ void add_symbol(basic_block_t *bb, var_t *var)
     }
 }
 
+/* 增加指令 add instruction */
 void add_insn(block_t *block,
               basic_block_t *bb,
               opcode_t op,
