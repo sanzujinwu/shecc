@@ -2812,9 +2812,9 @@ void read_global_decl(block_t *block)
 /* 这个函数处理源代码中的一个语句
  * 它只在上一层parse_internal中调用一次
  * 在文件结束T_eof前不断循环
- * 语句都以分号T_semicolon结尾
+ * 语句都以分号T_semicolon结尾，除非是函数定义
  * 函数中有三个大的判断分支，分别对应了struct、typedef、T_identifier
- * T_identifier标识符是最主要的分支，对应了
+ * T_identifier标识符是最主要的分支，对应了函数定义
  */
 void read_global_statement()
 {
