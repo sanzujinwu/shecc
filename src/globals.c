@@ -390,6 +390,10 @@ var_t *find_member(char token[], type_t *type)
     return NULL;
 }
 
+/* 根据标记查找局部变量
+ * 先从当前代码块的局部变量查起，然后查找上一级的代码块，以此类推
+ * 如果多级代码块的局部变量找不到，那么查找函数形参
+ */
 var_t *find_local_var(char *token, block_t *block)
 {
     int i;
@@ -550,6 +554,11 @@ void bb_disconnect(basic_block_t *pred, basic_block_t *succ)
 }
 
 /* The symbol is an argument of function or the variable in declaration */
+/* 申请一个符号变量sym的内存
+ * 用sym->var记录变量var的地址
+ * 用sym->index记录节点在链表中的序数
+ * 把sym作为节点记录到基本块bb的符号链表后面
+ */
 void add_symbol(basic_block_t *bb, var_t *var)
 {
     symbol_t *sym;
@@ -572,6 +581,7 @@ void add_symbol(basic_block_t *bb, var_t *var)
     }
 }
 
+/* 增加指令 add instruction */
 void add_insn(block_t *block,
               basic_block_t *bb,
               opcode_t op,

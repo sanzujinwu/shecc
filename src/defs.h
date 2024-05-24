@@ -80,21 +80,21 @@ typedef enum {
 
     /* calling convention */
     OP_define,   /* function entry point */
-    OP_push,     /* prepare arguments */
-    OP_call,     /* function call */
+    OP_push,     /* prepare arguments */ /* 调用函数时压入参数，一次压入一个参数 */
+    OP_call,     /* function call */ /* 当前为主调函数，调用被调函数 */
     OP_indirect, /* indirect call with function pointer */
-    OP_return,   /* explicit return */
+    OP_return,   /* explicit return */ /* 当前为被调函数，向上返回主调函数 */
 
     OP_allocat, /* allocate space on stack */
     OP_assign,
     OP_load_constant,     /* load constant */
-    OP_load_data_address, /* lookup address of a constant in data section */
+    OP_load_data_address, /* lookup address of a constant in data section */ /* 从数据段某地址获取一个常量 */
 
     /* control flow */
     OP_label,
     OP_branch,      /* conditional jump */
     OP_jump,        /* unconditional jump */
-    OP_func_ret,    /* returned value */
+    OP_func_ret,    /* returned value */ /* 当前为主调函数，获取被调函数的返回值 */
     OP_block_start, /* code block start */
     OP_block_end,   /* code block end */
 
@@ -168,13 +168,13 @@ struct var {
     int init_val; /* for global initialization */
     int liveness; /* live range */
     int in_loop;
-    struct var *base;
+    struct var *base;   /* 用结构体成员base记录该结构体变量自己的地址 */
     int subscript;
     struct var *subscripts[64];
     int subscripts_idx;
     rename_t rename;
     ref_block_list_t ref_block_list; /* blocks which kill variable */
-    int consumed;
+    int consumed;   /* 意为消耗，在reg-alloc.c（寄存器分配）和ssa.c(静态单赋值形式)中多次使用，待加深理解 */
     int is_ternary_ret;
     int is_const; /* whether a constant representaion or not */
 };
@@ -205,6 +205,11 @@ typedef struct {
 } func_t;
 
 /* block definition */
+/* 代码段定义
+ * 本代码段内的局部变量数组，最多可以记录MAX_LOCALS个
+ * 以next_local保存已经记录的局部变量的数量
+ * parent指向上级代码段
+ */
 struct block {
     var_t locals[MAX_LOCALS];
     int next_local;

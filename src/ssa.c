@@ -6,6 +6,13 @@
  */
 
 /* cfront does not accept structure as an argument, pass pointer */
+/* 用于遍历基本块、即CFG流程图节点
+ * 入参包括待分析的函数、节点、计算函数的指针，每次调用处理一个节点，通过函数内递归调用完成一个函数流程图各节点排序
+ * 计算函数的指针赋值给args->preorder_cb或args->postorder_cb
+ * args->preorder_cb非空为先序、args->postorder_cb非空为后序
+ * 待分析的函数遍历之前args->fn->visited自增一次，每个节点的args->bb->next->visited和函数的visited进行比较
+ * 即可知在本次函数遍历中，当前节点是否已经计算过。如已算过，不重复计算
+ */
 void bb_forward_traversal(bb_traversal_args_t *args)
 {
     args->bb->visited++;
@@ -76,8 +83,16 @@ void bb_reverse_index(fn_t *fn, basic_block_t *bb)
     bb->rpo = fn->bb_cnt - bb->rpo;
 }
 
+/* 根据节点的bb->rpo大小从小到大排序， bb->rpo_next指向下一个节点*/
 void bb_build_rpo(fn_t *fn, basic_block_t *bb)
 {
+    /* 插入法排序，已有的序列从prev开始，curr是其指向的下一个节点
+     * prev的初始值为函数的第一个基本块，即流程图CFG的第一个节点
+     * 随着计算进行，prev和curr的指向会更新
+     * 入参bb是待插入的节点
+     * bb和已有序列不断比较，如不大于已有序列某节点，插入已有序列，更新各节点bb->rpo_next指向关系
+     * bb如大于已有序列全部节点，插入序列末尾
+     */
     basic_block_t *prev, *curr;
 
     if (fn->bbs == bb)
@@ -92,6 +107,7 @@ void bb_build_rpo(fn_t *fn, basic_block_t *bb)
         }
         bb->rpo_next = curr;
         prev->rpo_next = bb;
+        /* 这里多余，返回前不需要给局部变量赋值了 */
         prev = curr;
         return;
     }
@@ -99,6 +115,10 @@ void bb_build_rpo(fn_t *fn, basic_block_t *bb)
     prev->rpo_next = bb;
 }
 
+/* 计算CFG节点的RPO即逆后序
+ * https://blog.csdn.net/dashuniuniu/article/details/52159792
+ * 注意区分逆后序和前序、逆后序和广度优先的区别
+ */
 void build_rpo()
 {
     fn_t *fn;
@@ -106,15 +126,18 @@ void build_rpo()
     for (fn = FUNC_LIST.head; fn; fn = fn->next) {
         args->fn = fn;
         args->bb = fn->bbs;
-
+        
+        /* 通过后序遍历的方式为节点排序，序号保存在bb->rpo中 */
         fn->visited++;
         args->postorder_cb = bb_index_rpo;
         bb_forward_traversal(args);
 
+        /* 逆后序的序号为N-后序遍历的序号，即bb->rpo = fn->bb_cnt - bb->rpo; */
         fn->visited++;
         args->postorder_cb = bb_reverse_index;
         bb_forward_traversal(args);
 
+        /* 根据逆后序的序号，建立节点的链表 */
         fn->visited++;
         args->postorder_cb = bb_build_rpo;
         bb_forward_traversal(args);
@@ -143,6 +166,24 @@ basic_block_t *intersect(basic_block_t *i, basic_block_t *j)
  * Reference:
  *   Cooper, Keith D.; Harvey, Timothy J.; Kennedy, Ken (2001).
  *   "A Simple, Fast Dominance Algorithm"
+ */
+
+/* 计算直接支配者
+ * 算法的论文已保存在本地目录中：D:\资料库\理\编译原理\论文\A Simple, Fast Dominance Algorithm
+ * 这个算法的要点如下
+ * 所有节点的直接支配关系构成支配者树，每个节点的父节点是其直接支配者，所有祖先节点及自身是支配者。
+ * 每个节点都比它的直接支配者的逆后序序号要大，因为逆后序是先遍历所有子节点，再计算自身节点。
+ * 由支配者树的任意节点向根节点上溯，其逆后序序号单调减小。
+ * 
+ * 本算法是一个迭代算法
+ * 每次迭代都以当前已经计算出的某节点的直接支配者结合该节点在CFG图中的所有前级节点计算“交集”，成为新的直接支配者
+ * 当一次迭代中所有节点的直接支配者都不再变化时，迭代结束
+ * 为什么某节点的直接支配者只是一个节点，却能和该节点的所有前级节点计算交集呢？
+ * 因为直接支配者已经隐式地代表了所有支配者的信息，即直接支配者在支配树上向上追溯到根节点的所有节点。
+ * 而每一个节点都能在支配树上向上追溯直到根节点
+ * 所以对于交集的计算可以等价为在支配树上两个节点向上追溯直到共同的父节点，并且由此向上的所有节点都是交集。
+ * 又因为向根节点上溯时，其逆后序序号单调减小，所以计算交集可以又可以简化为比较大小
+ * 当比较结果不同时，大的那一个节点替换为它的直接支配者继续计算，直到两者相等
  */
 void build_idom()
 {
@@ -219,6 +260,7 @@ void bb_build_dom(fn_t *fn, basic_block_t *bb)
     }
 }
 
+/* 建立支配者树 */
 void build_dom()
 {
     fn_t *fn;
@@ -234,6 +276,15 @@ void build_dom()
     free(args);
 }
 
+/* 计算支配边界
+ * 非正式的说，某节点的支配边界就是该节点出发，可达但不严格支配的第一个节点（的集合，因为可以有很多种分支路径）
+ * bb为当前节点，第一个循环为了计算当前节点有多少前驱
+ * 只有前驱大于1时，当前节点才是汇合点，也只有汇合点才可能是某个节点的支配边界
+ * bb的前驱节点沿着支配树上溯，直到某个节点可以直接支配bb(不含)
+ * 中间的所有节点都有bb作为其支配边界
+ * 再换句话说，bb的直接支配者bb->idom垄断了所有到达bb的路径
+ * 自bb->idom（不含）往下直到bb的多个前级，都是分支，都无法支配bb，那么每个分支中的节点都有一个支配边界是bb
+ */
 void bb_build_df(fn_t *fn, basic_block_t *bb)
 {
     UNUSED(fn);
@@ -252,6 +303,7 @@ void bb_build_df(fn_t *fn, basic_block_t *bb)
             }
 }
 
+/* 对所有函数CFG通过前序遍历建立支配边界 */
 void build_df()
 {
     fn_t *fn;
@@ -293,6 +345,12 @@ void bb_add_killed_var(basic_block_t *bb, var_t *var)
     bb->live_kill[bb->live_kill_idx++] = var;
 }
 
+/* 变量var记录定义它的基本块
+ * 对变量的全部定义的基本块记录在链表中
+ * 链表节点为ref_block_t *ref
+ * 节点包含一个基本块的指针和指向下一个节点的指针
+ * var->ref_block_list中记录链表的头尾节点
+ */
 void var_add_killed_bb(var_t *var, basic_block_t *bb)
 {
     int found = 0;
@@ -317,6 +375,7 @@ void var_add_killed_bb(var_t *var, basic_block_t *bb)
     var->ref_block_list.tail = ref;
 }
 
+/* 增加全局名字，以链表形式存储，即符号表symbol_t */
 void fn_add_global(fn_t *fn, var_t *var)
 {
     int found = 0;
@@ -344,11 +403,18 @@ void fn_add_global(fn_t *fn, var_t *var)
     }
 }
 
+/* 查找全局名字（跨多个基本块的活动的变量名） */
 void bb_solve_globals(fn_t *fn, basic_block_t *bb)
 {
     UNUSED(fn);
 
     insn_t *insn;
+    /* 遍历节点的所有指令
+     * 指令insn中的rs1、rs2是使用操作数，rd是定义操作数
+     * 当前节点未定义而使用的变量名加入全局名字
+     * 把rd加入当前节点定义的名字
+     * 变量rd记录定义它的基本块
+     */
     for (insn = bb->insn_list.head; insn; insn = insn->next) {
         if (insn->rs1)
             if (!var_check_killed(insn->rs1, bb))
@@ -363,6 +429,7 @@ void bb_solve_globals(fn_t *fn, basic_block_t *bb)
     }
 }
 
+/* 后序遍历查找所有节点的全局名字 */
 void solve_globals()
 {
     fn_t *fn;
@@ -378,6 +445,7 @@ void solve_globals()
     free(args);
 }
 
+/* 查看block是否在变量var的作用域中，从当前block向上追溯。都没找到再查函数形参 */
 int var_check_in_scope(var_t *var, block_t *block)
 {
     func_t *fn = block->func;
@@ -401,6 +469,7 @@ int var_check_in_scope(var_t *var, block_t *block)
     return 0;
 }
 
+/* 插入phi指令 */
 int insert_phi_insn(basic_block_t *bb, var_t *var)
 {
     insn_t *insn;
@@ -433,29 +502,37 @@ int insert_phi_insn(basic_block_t *bb, var_t *var)
 void solve_phi_insertion()
 {
     fn_t *fn;
+    /* 遍历所有函数 */
     for (fn = FUNC_LIST.head; fn; fn = fn->next) {
         symbol_t *sym;
+        /* 遍历所有全局活动变量的名字 */
         for (sym = fn->global_sym_list.head; sym; sym = sym->next) {
             var_t *var = sym->var;
 
+            /* bb是动态申请的，这里限制了最大64？ */
             basic_block_t *work_list[64];
             int work_list_idx = 0;
 
             ref_block_t *ref;
+            /* 定义该变量的每一个节点都加入work_list */
             for (ref = var->ref_block_list.head; ref; ref = ref->next)
                 work_list[work_list_idx++] = ref->bb;
 
             int i;
+            /* 遍历work_list中的节点 */
             for (i = 0; i < work_list_idx; i++) {
                 basic_block_t *bb = work_list[i];
                 int j;
+                /* 遍历节点的支配边界 */
                 for (j = 0; j < bb->df_idx; j++) {
                     basic_block_t *df = bb->DF[j];
+                    /* 检查作用域，不符合就跳过当前循环 */
                     if (!var_check_in_scope(var, df->scope))
                         continue;
 
                     int is_decl = 0;
                     symbol_t *s;
+                    /* phi函数都是在节点最前面插入的，如果var是当前节点定义的变量，那么此时它不活动，不需要插入phi函数 */
                     for (s = df->symbol_list.head; s; s = s->next)
                         if (s->var == var) {
                             is_decl = 1;
@@ -465,12 +542,15 @@ void solve_phi_insertion()
                     if (is_decl)
                         continue;
 
+                    /* 退出的节点不需要phi函数 */
                     if (df == fn->exit)
                         continue;
 
+                    /* 作用域为文件的全局变量不需要phi函数，这里的全局活动名字指的是函数内部跨不同节点 */
                     if (var->is_global)
                         continue;
 
+                    /* 插入phi函数 */
                     if (insert_phi_insn(df, var)) {
                         int l, found = 0;
 
@@ -480,9 +560,14 @@ void solve_phi_insertion()
                          * prevent temporary variable from propagating through
                          * the dominance tree.
                          */
+                        /* 限制三元操作符的phi节点插入。
+                         * 三元操作符不会创建新的作用域，因此应防止临时变量通过支配树传播。
+                        */
                         if (var->is_ternary_ret)
                             continue;
 
+                        /* 在支配边界添加phi函数本身就是对变量的一次重新定义。
+                         * 因此，df节点也要添加到 work_list（如果尚未添加的话） */
                         for (l = 0; l < work_list_idx; l++)
                             if (work_list[l] == df) {
                                 found = 1;
@@ -615,8 +700,13 @@ void bb_solve_phi_params(basic_block_t *bb)
     }
 }
 
+/* phi函数重命名
+ * 栈的入栈和出栈模拟在支配树上移动时，当前变量的定义
+ * 计数器单调递增，使每个定义都有唯一的SSA名
+ */
 void solve_phi_params()
 {
+    /* subscript意为下标 */
     fn_t *fn;
     for (fn = FUNC_LIST.head; fn; fn = fn->next) {
         int i;
@@ -633,6 +723,7 @@ void solve_phi_params()
             base->subscripts[base->subscripts_idx++] = var;
         }
 
+        /* 从初始节点开始递归重命名 */
         bb_solve_phi_params(fn->bbs);
     }
 }
@@ -1029,13 +1120,25 @@ void dump_dom(char name[])
 
 void ssa_build(int dump_ir)
 {
+    /* reverse post-order（RPO）逆后序 */
     build_rpo();
+
+    /* 直接支配节点IDOM，IDOM(n)指严格支配n的节点集 DOM(n)-n 中和n最近的节点。
+     * 因为按定义每条路径都包含该节点，不独属于某个分支，所以IDOM(n)最多只可能有一个（入口节点没有）
+     * 由IDOM(n)作为n的父节点可以画出控制流图CFG的支配者树（n最多只有一个父节点，所以为树） */
     build_idom();
+
+    /* 支配节点集合DOM，DOM(n)指从入口节点到n的每条路径都包含的节点的集合，就是从开始走到n绕不过去的所有节点 */
     build_dom();
+
+    /* 直接边界DF */
     build_df();
 
+    /* 后序遍历查找所有节点的全局名字 */
     solve_globals();
+    /* 插入phi函数 */
     solve_phi_insertion();
+    /* 重命名 */
     solve_phi_params();
 
 #ifdef __SHECC__
@@ -1045,7 +1148,7 @@ void ssa_build(int dump_ir)
         dump_dom("DOM.dot");
     }
 #endif
-
+    /*  */
     unwind_phi();
 }
 
