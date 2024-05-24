@@ -3058,11 +3058,12 @@ void parse_internal()
     /* 开始词法分析主体，只要语法分析返回的标记不是EOF文件结束，就一直处理 */
     do {
         /* 调试代码 */
+        /* 进入原函数的主体部分，在这之前是添加的libc.c内容。可以在此处加断点 
         if (source_idx > 16229)
         {
-            /* 进入原函数的主体部分，在这之前是添加的libc.c内容。可以在此处加断点 */
             printf("source_idx=%d\n", source_idx);
         }
+        */
 
         /* 预处理 */
         if (read_preproc_directive())
